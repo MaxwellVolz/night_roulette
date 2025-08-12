@@ -1,114 +1,91 @@
 "use client";
 
 import { useSelections } from "@/store/selections";
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { X } from "lucide-react";
+import * as THREE from "three";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
+import { Physics, RigidBody } from "@react-three/rapier";
+import Wheel from "@/components/Wheel";
 
-import * as THREE from 'three';
+/* ---------- Scene bits ---------- */
 
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+function Ball({ idx }: { idx: number }) {
+    return (
+        <RigidBody
+            colliders="ball"
+            restitution={0.65}
+            friction={0.6}
+            canSleep
+            ccd
+            position={[
+                (Math.random() - 0.5) * 10,
+                20 + idx * 0.3,
+                (Math.random() - 0.5) * 10,
+            ]}
+        >
+            <mesh castShadow receiveShadow>
+                <sphereGeometry args={[1, 32, 16]} />
+                <meshStandardMaterial metalness={0.5} roughness={0.4} color={0xd4af37} />
+            </mesh>
+        </RigidBody>
+    );
+}
 
+function Floor() {
+    return (
+        <RigidBody type="fixed" colliders="trimesh">
+            <mesh receiveShadow position={[0, -0.25, 0]}>
+                <boxGeometry args={[20, 0.5, 20]} />
+                <meshStandardMaterial color={0x222222} roughness={0.9} />
+            </mesh>
+        </RigidBody>
+    );
+}
+
+/* ---------- Scene content ---------- */
+
+function SceneContent() {
+    return (
+        <>
+            <ambientLight intensity={0.6} />
+            <directionalLight position={[5, 10, 5]} intensity={3} castShadow />
+
+            <Physics gravity={[0, -9.81, 0]} debug>
+                <Floor />
+
+                {/* Use the GLB's geometry as the collider directly */}
+                {/* If the wheel is STATIC: keep type="fixed" + colliders="trimesh" */}
+                {/* If the wheel MOVES: change to type="dynamic" + colliders="hull" */}
+                <RigidBody type="fixed" colliders="trimesh">
+                    <Wheel />
+                </RigidBody>
+
+                {Array.from({ length: 20 }).map((_, i) => (
+                    <Ball key={i} idx={i} />
+                ))}
+            </Physics>
+
+            <Environment preset="city" />
+            <OrbitControls
+                enableDamping
+                minDistance={10}
+                maxDistance={50}
+                target={[0, 0, 0]}
+            />
+        </>
+    );
+}
+
+/* ---------- Page ---------- */
 
 export default function SpinPage() {
-    const likes = useSelections(s => s.likes);
-    const removeLike = useSelections(s => s.removeLike);         // <-- use it
+    const likes = useSelections((s) => s.likes);
+    const removeLike = useSelections((s) => s.removeLike);
     const all = useMemo(() => Object.values(likes).flat(), [likes]);
     const [resultIdx, setResultIdx] = useState<number | null>(null);
-
-    const mountRef = useRef<HTMLDivElement>(null);
-
     const canSpin = all.length >= 1;
-
-    useEffect(() => {
-        if (!mountRef.current) return;
-
-        // Scene setup
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x222222);
-
-        const camera = new THREE.PerspectiveCamera(55, 1, 0.001, 5000);
-        camera.position.set(0, 40, 40);
-        camera.lookAt(0, 0, 0);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setClearColor(0x000000, 0);
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-
-        // attach canvas
-        const container = mountRef.current;
-        container.appendChild(renderer.domElement);
-        renderer.domElement.style.width = "100%";
-        renderer.domElement.style.height = "100%";
-        renderer.domElement.style.display = "block";
-
-        // size to parent
-        const resize = () => {
-            const w = container.clientWidth || 1;
-            const h = container.clientHeight || 1;
-            renderer.setSize(w, h, /*updateStyle*/ false);
-            camera.aspect = w / h;
-            camera.updateProjectionMatrix();
-        };
-        resize();
-
-        // observe parent size changes
-        const ro = new ResizeObserver(resize);
-        ro.observe(container);
-
-        // Controls
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.minDistance = 20;
-        controls.maxDistance = 60;
-        controls.enableDamping = true;
-        controls.target.set(0, 0, 0);
-        controls.update();
-
-        // Lights
-        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-        const dirLight = new THREE.DirectionalLight(0xffffff, 5);
-        dirLight.position.set(5, 10, 5);
-        dirLight.castShadow = true;
-        scene.add(dirLight);
-
-        // Helpers
-        scene.add(new THREE.GridHelper(10, 10));
-        scene.add(new THREE.AxesHelper(5));
-        scene.background = null;
-
-
-        // Load GLTF
-        const dracoLoader = new DRACOLoader();
-        dracoLoader.setDecoderPath('/jsm/libs/draco/');
-        const loader = new GLTFLoader();
-        loader.setDRACOLoader(dracoLoader);
-        loader.load('/models/roulette_wheel.glb', (gltf) => {
-            scene.add(gltf.scene);
-        });
-
-        // Animate
-        let raf = 0;
-        const animate = () => {
-            controls.update();
-            renderer.render(scene, camera);
-            raf = requestAnimationFrame(animate);
-        };
-        raf = requestAnimationFrame(animate);
-
-        // Cleanup
-        return () => {
-            ro.disconnect();
-            cancelAnimationFrame(raf);
-            controls.dispose();
-            renderer.dispose();
-            if (renderer.domElement.parentElement === container) {
-                container.removeChild(renderer.domElement);
-            }
-        };
-    }, []);
-
 
     return (
         <div className="flex h-full flex-col">
@@ -131,12 +108,11 @@ export default function SpinPage() {
                                 outline: resultIdx === i ? `2px solid var(--color-gold)` : "none",
                             }}
                         >
-                            {/* remove button */}
                             <button
                                 aria-label="Remove from liked"
                                 onClick={() => {
                                     removeLike(c.category, c.id);
-                                    setResultIdx(prev =>
+                                    setResultIdx((prev) =>
                                         prev == null ? prev : i === prev ? null : i < prev ? prev - 1 : prev
                                     );
                                 }}
@@ -157,7 +133,21 @@ export default function SpinPage() {
                 </div>
             </div>
 
-            <div ref={mountRef} className="w-full" style={{ height: '460px', overflow: 'hidden' }} />
+            {/* Canvas */}
+            <div className="relative w-full max-w-[560px] aspect-square overflow-hidden self-center">
+                <Canvas
+                    shadows
+                    gl={{ antialias: true, alpha: true }}
+                    onCreated={({ gl, camera }) => {
+                        gl.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+                        gl.toneMapping = THREE.ACESFilmicToneMapping;
+                        camera.position.set(0, 30, 30);
+                        (camera as THREE.PerspectiveCamera).lookAt(0, 0, 0);
+                    }}
+                >
+                    <SceneContent />
+                </Canvas>
+            </div>
 
             <footer className="mt-4 flex items-center gap-3">
                 <button
@@ -180,3 +170,6 @@ export default function SpinPage() {
         </div>
     );
 }
+
+/* Preload GLB to avoid first-frame hitch */
+useGLTF.preload("/models/roulette_wheel.glb");
