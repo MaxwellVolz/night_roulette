@@ -1,33 +1,105 @@
 "use client";
 
 import { useSelections } from "@/store/selections";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef } from "react";
 import { X } from "lucide-react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
-import { Physics, RigidBody } from "@react-three/rapier";
-import Wheel from "@/components/Wheel";
+import { OrbitControls, Environment, useGLTF, Text } from "@react-three/drei";
+import { Physics, RigidBody, interactionGroups } from "@react-three/rapier";
+import Inner from "@/components/Inner";
+import Outer from "@/components/Outer";
 
-/* ---------- Scene bits ---------- */
+function FlatRingText({
+    labels,
+    radius = 8,
+    y = 3,
+    fontSize = 0.1,
+    inward = true,
+    color = "#fff",
+}: {
+    labels: string[];
+    radius?: number;
+    y?: number;
+    fontSize?: number;
+    inward?: boolean;
+    color?: string;
+}) {
+    const n = labels.length || 1;
+    return (
+        <>
+            {labels.map((txt, i) => {
+                const theta = (i / n) * Math.PI * 2;
+                const x = Math.cos(theta) * radius;
+                const z = Math.sin(theta) * radius;
+                const rotY = inward ? theta + Math.PI : theta;
+
+                return (
+                    <group key={i} position={[x, y, z]} rotation={[0, 0 - rotY, 0]}>
+                        <Text
+                            rotation={[-Math.PI / 2, 0, 0]}
+                            fontSize={fontSize}
+                            color={color}
+                            anchorX={inward ? "right" : "left"}
+                            anchorY="middle"
+                            outlineWidth={0.2 * fontSize}
+                            outlineColor="black"
+                            curveRadius={-40}
+                        >
+                            {txt}
+                        </Text>
+                    </group>
+                );
+            })}
+        </>
+    );
+}
+
+function Label3D({
+    children,
+    position,
+}: {
+    children: string;
+    position: [number, number, number];
+}) {
+    return (
+        <Text
+            position={position}
+            rotation={[-Math.PI / 2, 0, 0]}
+            fontSize={1}
+            color="#FFD700"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.02}
+            outlineColor="black"
+        >
+            {children}
+        </Text>
+    );
+}
 
 function Ball({ idx }: { idx: number }) {
     return (
         <RigidBody
             colliders="ball"
             restitution={0.65}
-            friction={0.6}
-            canSleep
+            friction={0.3}
+            mass={0.2}
             ccd
+            collisionGroups={interactionGroups(0b01, 0b11)} // balls collide with wheel & rim
             position={[
-                (Math.random() - 0.5) * 10,
-                20 + idx * 0.3,
-                (Math.random() - 0.5) * 10,
+                (Math.random() - 0.5) * 1,
+                1 + idx * 0.3,
+                (Math.random() - 0.5) * 1,
             ]}
         >
             <mesh castShadow receiveShadow>
-                <sphereGeometry args={[1, 32, 16]} />
-                <meshStandardMaterial metalness={0.5} roughness={0.4} color={0xd4af37} />
+                <sphereGeometry args={[0.03, 32, 16]} />
+                <meshStandardMaterial
+                    metalness={0.5}
+                    roughness={0.4}
+                    color={0xd4af37}
+                />
             </mesh>
         </RigidBody>
     );
@@ -44,9 +116,16 @@ function Floor() {
     );
 }
 
-/* ---------- Scene content ---------- */
+function SceneContent({ labels }: { labels: string[] }) {
+    const wheelRef = useRef<RigidBody>(null);
 
-function SceneContent() {
+    const spinWheel = (impulseY = 2500) => {
+        const rb = wheelRef.current;
+        if (!rb) return;
+        rb.applyTorqueImpulse({ x: 0, y: impulseY, z: 0 }, true);
+        rb.wakeUp();
+    };
+
     return (
         <>
             <ambientLight intensity={0.6} />
@@ -55,14 +134,49 @@ function SceneContent() {
             <Physics gravity={[0, -9.81, 0]} debug>
                 <Floor />
 
-                {/* Use the GLB's geometry as the collider directly */}
-                {/* If the wheel is STATIC: keep type="fixed" + colliders="trimesh" */}
-                {/* If the wheel MOVES: change to type="dynamic" + colliders="hull" */}
-                <RigidBody type="fixed" colliders="trimesh">
-                    <Wheel />
+                {/* Inner wheel with complex hull collider */}
+                <RigidBody
+                    ref={wheelRef}
+                    type="dynamic"
+                    colliders="hull"
+                    ccd
+                    canSleep
+                    angularDamping={0.18}
+                    linearDamping={1}
+                    friction={0.9}
+                    restitution={0.1}
+                    enabledTranslations={[false, false, false]}
+                    enabledRotations={[false, true, false]}
+                    position={[0, 0.05, 0]}
+                >
+                    <group
+                        colliders={false} // prevent labels/text from generating colliders
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const dir = e.altKey ? -1 : 1;
+                            const rb = wheelRef.current;
+                            if (!rb) return;
+
+                            // Guarantee visible rotation and still have physics impulse
+                            rb.setAngvel({ x: 0, y: .15 * dir, z: 0 }, true);
+                            spinWheel(.15 * dir);
+                        }}
+                    >
+                        <Inner />
+                    </group>
                 </RigidBody>
 
-                {Array.from({ length: 20 }).map((_, i) => (
+                {/* Rim is fixed and ignores raycasts */}
+                <RigidBody
+                    type="fixed"
+                    colliders="trimesh"
+                >
+                    <group raycast={() => null}>
+                        <Outer />
+                    </group>
+                </RigidBody>
+
+                {Array.from({ length: 5 }).map((_, i) => (
                     <Ball key={i} idx={i} />
                 ))}
             </Physics>
@@ -70,15 +184,13 @@ function SceneContent() {
             <Environment preset="city" />
             <OrbitControls
                 enableDamping
-                minDistance={10}
-                maxDistance={50}
+                minDistance={2}
+                maxDistance={10}
                 target={[0, 0, 0]}
             />
         </>
     );
 }
-
-/* ---------- Page ---------- */
 
 export default function SpinPage() {
     const likes = useSelections((s) => s.likes);
@@ -86,6 +198,22 @@ export default function SpinPage() {
     const all = useMemo(() => Object.values(likes).flat(), [likes]);
     const [resultIdx, setResultIdx] = useState<number | null>(null);
     const canSpin = all.length >= 1;
+
+    const SLOTS = 8;
+    const rawLabels = useMemo(
+        () => all.map((c: any) => c.title ?? String(c.id)),
+        [all]
+    );
+
+    const labels = useMemo(() => {
+        if (rawLabels.length === 0) return Array(SLOTS).fill("—");
+        if (rawLabels.length === SLOTS) return rawLabels;
+        if (rawLabels.length > SLOTS) return rawLabels.slice(0, SLOTS);
+        const out: string[] = [];
+        for (let i = 0; i < SLOTS; i++)
+            out.push(rawLabels[i % rawLabels.length]);
+        return out;
+    }, [rawLabels]);
 
     return (
         <div className="flex h-full flex-col">
@@ -105,7 +233,10 @@ export default function SpinPage() {
                             style={{
                                 backgroundColor: "var(--color-primary)",
                                 boxShadow: "inset 0 0 0 1px var(--color-brass)",
-                                outline: resultIdx === i ? `2px solid var(--color-gold)` : "none",
+                                outline:
+                                    resultIdx === i
+                                        ? `2px solid var(--color-gold)`
+                                        : "none",
                             }}
                         >
                             <button
@@ -113,7 +244,13 @@ export default function SpinPage() {
                                 onClick={() => {
                                     removeLike(c.category, c.id);
                                     setResultIdx((prev) =>
-                                        prev == null ? prev : i === prev ? null : i < prev ? prev - 1 : prev
+                                        prev == null
+                                            ? prev
+                                            : i === prev
+                                                ? null
+                                                : i < prev
+                                                    ? prev - 1
+                                                    : prev
                                     );
                                 }}
                                 className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-md transition-opacity hover:opacity-90"
@@ -125,15 +262,18 @@ export default function SpinPage() {
                                 <X className="h-4 w-4" color="var(--color-gold)" />
                             </button>
 
-                            <div className="text-sm text-zinc-300">{c.category.toUpperCase()}</div>
+                            <div className="text-sm text-zinc-300">
+                                {c.category.toUpperCase()}
+                            </div>
                             <div className="text-base font-semibold">{c.title}</div>
-                            {c.subtitle && <div className="text-sm text-zinc-400">{c.subtitle}</div>}
+                            {c.subtitle && (
+                                <div className="text-sm text-zinc-400">{c.subtitle}</div>
+                            )}
                         </div>
                     ))}
                 </div>
             </div>
 
-            {/* Canvas */}
             <div className="relative w-full max-w-[560px] aspect-square overflow-hidden self-center">
                 <Canvas
                     shadows
@@ -141,11 +281,11 @@ export default function SpinPage() {
                     onCreated={({ gl, camera }) => {
                         gl.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
                         gl.toneMapping = THREE.ACESFilmicToneMapping;
-                        camera.position.set(0, 30, 30);
+                        camera.position.set(0, 2, 2);
                         (camera as THREE.PerspectiveCamera).lookAt(0, 0, 0);
                     }}
                 >
-                    <SceneContent />
+                    <SceneContent labels={labels} />
                 </Canvas>
             </div>
 
@@ -171,5 +311,4 @@ export default function SpinPage() {
     );
 }
 
-/* Preload GLB to avoid first-frame hitch */
 useGLTF.preload("/models/roulette_wheel.glb");

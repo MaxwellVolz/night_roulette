@@ -71,11 +71,11 @@ export default function SwipeClient({ category }: { category: string }) {
 
 function getCategorySeeds(cat: string): Omit<Choice, "category">[] {
     const base = [
-        { id: "1", title: "North Beach Tavern", subtitle: "Classic cocktails, cozy vibe", image: "/imgs/bar1.png" },
-        { id: "2", title: "Rooftop 360", subtitle: "Views + small plates", image: "/imgs/bar2.png" },
-        { id: "3", title: "Speakeasy Cellar", subtitle: "Password at the door", image: "/imgs/bar3.png" },
-        { id: "4", title: "Live Jazz Lounge", subtitle: "Nightly sets at 9PM", image: "/imgs/bar4.png" },
-        { id: "5", title: "Pinball & Pints", subtitle: "Arcade bar", image: "/imgs/bar5.png" },
+        { id: "1", title: "Tony Niks Cafe", subtitle: "Classic cocktails, cozy vibe", image: "/imgs/bar1.png" },
+        { id: "2", title: "Columbus Cafe", subtitle: "Views + small plates", image: "/imgs/bar2.png" },
+        { id: "3", title: "Boardroom", subtitle: "Password at the door", image: "/imgs/bar3.png" },
+        { id: "4", title: "Tupelo", subtitle: "Nightly sets at 9PM", image: "/imgs/bar4.png" },
+        { id: "5", title: "Lillie Coit's", subtitle: "Arcade bar", image: "/imgs/bar5.png" },
     ];
     const workout = [
         { id: "w1", title: "Bouldering Gym", subtitle: "Day pass", image: "/imgs/work1.png" },
